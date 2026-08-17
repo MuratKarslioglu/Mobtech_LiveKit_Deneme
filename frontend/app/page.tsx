@@ -155,15 +155,15 @@ function InfoSidebar({ connected }: { connected: boolean }) {
         <dl className="mt-2 flex flex-col gap-1.5 text-sm">
           <div className="flex justify-between gap-2">
             <dt className="text-neutral-500">STT</dt>
-            <dd className="text-right text-neutral-700">Faster-Whisper</dd>
+            <dd className="text-right text-neutral-700">Azure OpenAI</dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt className="text-neutral-500">LLM</dt>
-            <dd className="text-right text-neutral-700">Gemini</dd>
+            <dd className="text-right text-neutral-700">Azure OpenAI</dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt className="text-neutral-500">TTS</dt>
-            <dd className="text-right text-neutral-700">Gemini TTS</dd>
+            <dd className="text-right text-neutral-700">Azure OpenAI</dd>
           </div>
         </dl>
       </div>

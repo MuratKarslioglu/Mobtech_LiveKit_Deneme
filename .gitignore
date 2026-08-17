@@ -7,3 +7,6 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# Sadece yerel geliştirme/planlama notu — bilinçli olarak repoya dahil edilmiyor.
+TURKCE_SESLI_ASISTAN_V2_MIMARI.md

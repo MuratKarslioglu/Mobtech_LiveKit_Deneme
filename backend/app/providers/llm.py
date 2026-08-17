@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-from livekit.plugins import google
+from livekit.plugins import openai
 
 from ..config import Settings
 
 
-def build_llm(settings: Settings) -> google.LLM:
-    """Gemini Developer API'ye kendi GOOGLE_API_KEY'imizle bağlanan LLM örneği.
+def build_llm(settings: Settings) -> openai.LLM:
+    """Azure OpenAI (Azure AI Foundry) chat deployment'ına bağlanan LLM örneği.
 
-    max_output_tokens ve temperature, sesli asistan için kısa/öz cevaplar
-    hedefiyle bilinçli olarak düşük tutuluyor (bkz. app/prompts/system.py).
+    `reasoning_effort="minimal"`: gpt-5-mini gibi reasoning modellerinde
+    gereksiz iç muhakemeyi atlayıp gecikmeyi belirgin şekilde düşürüyor
+    (canlı ölçümde ortalama ~2.2sn -> ~1.2sn TTFT). Sesli asistan için
+    öncelik hızlı/kısa cevap, derin muhakeme değil.
     """
-    return google.LLM(
-        model=settings.gemini_llm_model,
+    return openai.LLM.with_azure(
+        model=settings.azure_openai_llm_deployment,
+        azure_endpoint=settings.azure_openai_endpoint,
+        azure_deployment=settings.azure_openai_llm_deployment,
+        api_version=settings.azure_openai_api_version,
+        api_key=settings.azure_openai_api_key,
+        reasoning_effort="minimal",
         temperature=0.6,
-        max_output_tokens=200,
+        max_completion_tokens=200,
     )

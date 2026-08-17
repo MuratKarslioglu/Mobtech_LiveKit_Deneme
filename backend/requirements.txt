@@ -1,5 +1,6 @@
-livekit-agents[google,silero]~=1.5
-faster-whisper>=1.0.0
+livekit-agents[silero]~=1.5
+livekit-plugins-openai>=1.5
+livekit-plugins-noise-cancellation~=0.2
 python-dotenv>=1.0.0
 
 # testler için
