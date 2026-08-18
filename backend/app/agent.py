@@ -32,45 +32,26 @@ from .tools.registry import all_tools
 logger = logging.getLogger("voice-agent")
 logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
 
-# Kök neden: asistanın kendi TTS çıktısı (özellikle Bluetooth kulaklıklarda,
-# ses gecikmesi echo-cancellation'ı bozabiliyor) mikrofona kalıntı olarak
-# sızabiliyor; Azure'un transcribe modeli (gpt-4o-mini-transcribe) de,
-# Whisper ailesi gibi üretken bir model olduğu için bu belirsiz/kısa ses
-# parçasından tam cümlelik bir metin "uydurabiliyor" (bilinen bir
-# halüsinasyon davranışı). Sonuç: kullanıcı hiç konuşmadan yeni bir tur
-# başlıyor. Bunu VAD hassasiyetiyle değil, transkriptin içeriğiyle
-# (kelime sayısıyla) engelliyoruz — bkz. VoiceAgent.stt_node. Gerçek tek
-# kelimelik cevaplar ("Evet", "Dur") kaybedilebilir; bu bilinçli bir
-# ödünleşim (yanlış tetiklenmeyi önlemek, tek kelimelik cevaptan önemli).
+# Asistanın kendi TTS çıktısı mikrofona sızıp Azure'un transcribe modelinde
+# (üretken/Whisper benzeri) halüsinasyon bir metne dönüşebiliyor; bunu VAD
+# hassasiyeti yerine transkript uzunluğuyla eliyoruz (bkz. VoiceAgent.stt_node).
+# Gerçek tek kelimelik cevaplar ("Evet", "Dur") bu yüzden kaybolabilir —
+# bilinçli bir ödünleşim.
 MIN_TRANSCRIPT_WORDS = 2
 
-# Tek-kelime filtresi (yukarıdaki) yalnızca `word_count == 1` durumunu
-# yakalıyor; asistanın kendi TTS çıktısının 2+ kelimelik bir parçası
-# (örn. son cevabının bir kısmı) mikrofona sızıp aynen ya da neredeyse
-# aynen transkript edilirse o filtreden kaçar ve gerçek bir LLM turu
-# başlatır — kullanıcı hiçbir şey sormamışken "Bir saniye, düşünüyorum."
-# duyulmasının kök nedeni budur. Burada final transkripti asistanın en son
-# söylediği metinle kelime bazında karşılaştırıp yüksek örtüşme
-# (self-echo) tespit ediyoruz. Eşik değeri, kısa ama meşru kullanıcı
-# cevaplarını ("Evet, doğru." gibi) yanlışlıkla elemeyecek kadar yüksek
-# tutuldu; tamamen farklı bir cümlede örtüşme oranı düşük kalır.
+# Tek-kelime filtresi 2+ kelimelik echo parçalarını (asistanın son cevabının
+# mikrofona sızan bir kısmı) yakalayamaz; bunun için final transkripti
+# asistanın son söylediğiyle karşılaştırıp yüksek örtüşmede eliyoruz.
 ECHO_SIMILARITY_THRESHOLD = 0.6
 
-# Self-echo kontrolü yalnızca asistan YAKIN ZAMANDA konuştuysa uygulanır.
-# Aksi halde, konuşmanın çok öncesinde asistanın söylediği bir ifadeyle
-# (örn. ortak bir Türkçe nezaket kalıbı — "teşekkür ederim" gibi) tesadüfen
-# örtüşen GERÇEK ve GÜNCEL bir kullanıcı cevabı yanlışlıkla echo sanılıp
-# atılabilir ("sistem beni duymadı" hissi buradan gelebilir). 8 saniyelik
-# pencere, tipik bir kısa asistan cevabının TTS ile seslendirilme süresine
-# (birkaç saniye) makul bir pay bırakıyor.
+# Self-echo kontrolü yalnızca asistan yakın zamanda konuştuysa uygulanır;
+# yoksa konuşmanın çok öncesindeki bir asistan ifadesiyle tesadüfen örtüşen
+# gerçek/güncel bir kullanıcı cevabı yanlış elenebilir.
 ECHO_RECENCY_WINDOW_S = 8.0
 
-# Render işini LiveKit CLI'ın kendi log sistemine bırakıyoruz (kendi handler'ımızı
-# kurmuyoruz ki mesajlar iki kere basılmasın). Üçüncü parti kütüphanelerin kendi
-# iç loglarını (HTTP client detayları, model çıkarım detayları) kaynağında
-# susturuyoruz; bize gereken her şey zaten kendi [STT]/[LLM]/[TTS]/[TOOL]/
-# [LATENCY]/[ERROR] loglarımızdan geçiyor. livekit.agents'ı bilerek susturmuyoruz —
-# worker/registered gibi bağlantı durumu mesajları hata ayıklarken değerli.
+# Kendi log handler'ımızı kurmuyoruz (mesajlar iki kere basılmasın diye,
+# LiveKit CLI'ın log sistemini kullanıyoruz); gürültülü üçüncü parti
+# kütüphane loglarını (HTTP/model detayları) susturuyoruz.
 for _noisy in ("httpx", "openai"):
     logging.getLogger(_noisy).setLevel(logging.ERROR)
 
@@ -89,20 +70,16 @@ def _last_assistant_message(chat_ctx: llm_module.ChatContext) -> tuple[str, floa
 
 
 def _normalize_for_echo_match(text: str) -> str:
-    # Noktalama (STT'nin ürettiği kesme/nokta/virgül asistanın orijinal
-    # cevabındakiyle birebir örtüşmeyebilir) ve fazla boşluk, ardışık eşleşme
-    # bloğunu gereksiz yere bölmesin diye normalize ediliyor.
+    # Noktalama farkları eşleşme bloğunu gereksiz bölmesin diye normalize edilir.
     normalized = re.sub(r"[^\w\s]", " ", text.lower())
     return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _is_self_echo(text: str, chat_ctx: llm_module.ChatContext) -> bool:
     """Yeni transkript, asistanın az önce söylediği metnin bir alt-dizisiyle
-    (ardışık karakter bloğuyla) büyük oranda örtüşüyor mu? Örtüşme oranı,
-    yeni transkriptin (genelde kısa bir echo/halüsinasyon parçası) uzunluğuna
-    göre normalize edilir — asistanın az önceki cevabı uzun bir cümle, echo
-    ise onun küçük bir parçası olabileceğinden simetrik bir benzerlik oranı
-    (`SequenceMatcher.ratio`) yanıltıcı biçimde düşük çıkabilir."""
+    büyük oranda örtüşüyor mu? Oran, yeni transkriptin (genelde kısa bir echo
+    parçası) uzunluğuna göre normalize edilir — simetrik `ratio()` burada
+    yanıltıcı düşük çıkabilir."""
     last_message = _last_assistant_message(chat_ctx)
     if last_message is None or not text:
         return False
@@ -120,16 +97,8 @@ def _is_self_echo(text: str, chat_ctx: llm_module.ChatContext) -> bool:
 
 
 class VoiceAgent(Agent):
-    """LLM çıktısını TTS'e vermeden önce `TextChunkBuffer`'dan geçiren, ve
-    LLM gerçekten çağrıldığında ara ("interim") mesaj zamanlayıcısını
-    yöneten `Agent`.
-
-    Varsayılan `tts_node`, streaming olmayan TTS'lerde genel amaçlı bir
-    cümle tokenizer'ı (blingfire) kullanıyor. Burada onun yerine kendi
-    Türkçe noktalama + minimum uzunluk kuralımızı (bkz.
-    `streaming/text_chunk_buffer.py`, V2 dokümanı bölüm 6) uyguluyoruz;
-    gerçek sentezi yine `Agent.default.tts_node`'a devrediyoruz.
-    """
+    """LLM çıktısını TTS'e vermeden önce `TextChunkBuffer`'dan geçiren ve LLM
+    çağrıldığında interim mesaj zamanlayıcısını yöneten `Agent`."""
 
     def __init__(self, *, orchestrator: ResponseOrchestrator, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -141,13 +110,9 @@ class VoiceAgent(Agent):
         tools: list[llm_module.Tool],
         model_settings: ModelSettings,
     ) -> AsyncIterable[llm_module.ChatChunk | str]:
-        """Zamanlayıcı, LLM'e tam soru (chat_ctx) verilip `.chat()` çağrısı
-        gerçekten başladığı anda başlar — `agent_state_changed`'daki genel
-        "thinking" durumunun aksine, hayalet bir tur (STT halüsinasyonu
-        `VoiceAgent.stt_node` tarafından filtrelenip LLM'e hiç ulaşmadıysa)
-        bu zamanlayıcıyı asla tetiklemez. İlk cevap chunk'ı gelir gelmez
-        iptal edilir — "son chunk"ı (generation bitişini) beklemek ara
-        mesajın amacını ortadan kaldırır."""
+        """İnterim zamanlayıcı LLM çağrısı gerçekten başladığında başlar (STT
+        tarafından filtrelenen hayalet turlar bunu hiç tetiklemez) ve ilk
+        cevap chunk'ı gelir gelmez iptal edilir."""
 
         async def _timed() -> AsyncIterator[llm_module.ChatChunk | str]:
             self._orchestrator.start_interim_timer()
@@ -168,13 +133,9 @@ class VoiceAgent(Agent):
     def stt_node(
         self, audio: AsyncIterable[rtc.AudioFrame], model_settings: ModelSettings
     ) -> AsyncIterable[stt_module.SpeechEvent]:
-        """`MIN_TRANSCRIPT_WORDS`'ten az kelime içeren VEYA asistanın az önce
-        söylediği metinle yüksek oranda örtüşen final transkriptleri
-        boşaltır — bunlar genelde gerçek konuşma değil, asistanın kendi
-        sesinin mikrofona sızmasından (echo) veya ortam gürültüsünden
-        STT'nin ürettiği halüsinasyonlardır. Bu sayede kullanıcı hiç
-        konuşmadığında sahte bir tur başlayıp asistanın gereksiz yere
-        cevap vermeye çalışması engellenir."""
+        """`MIN_TRANSCRIPT_WORDS`'ten az kelime içeren ya da asistanın az önce
+        söylediğiyle yüksek örtüşen final transkriptleri (muhtemel echo/
+        halüsinasyon) boşaltır."""
 
         async def _filtered() -> AsyncIterator[stt_module.SpeechEvent]:
             async for event in Agent.default.stt_node(self, audio, model_settings):
@@ -202,10 +163,8 @@ server = AgentServer()
 
 @server.rtc_session(agent_name="tr-voice-agent")
 async def entrypoint(ctx: JobContext) -> None:
-    # VAD hassasiyeti bilinçli olarak varsayılanında bırakılıyor —
-    # "kullanıcı konuşuyor mu" kararı dinleme aşamasında (mikrofon
-    # hassasiyetiyle) değil, düşünme aşamasına geçmeden hemen önce, STT'nin
-    # gerçekte ne yazdığına bakılarak veriliyor (bkz. VoiceAgent.stt_node).
+    # VAD hassasiyeti varsayılanında bırakıldı; "gerçek konuşma mı" kararı
+    # burada değil, STT çıktısına bakılarak VoiceAgent.stt_node'da veriliyor.
     vad = silero.VAD.load()
 
     session = AgentSession(
@@ -213,10 +172,8 @@ async def entrypoint(ctx: JobContext) -> None:
         stt=build_stt(settings),
         llm=build_llm(settings),
         tts=build_tts(settings),
-        # Asistan konuşurken (asıl "interruption" senaryosu) da aynı
-        # mantık: en az MIN_TRANSCRIPT_WORDS kelime içermeyen bir "araya
-        # girme" gerçek sayılmaz — SDK'nın kendi resmi mekanizması,
-        # VoiceAgent.stt_node'daki genel filtreyi tamamlıyor.
+        # Barge-in'de de aynı eşik: MIN_TRANSCRIPT_WORDS'ten az kelimelik
+        # bir "araya girme" gerçek sayılmaz.
         turn_handling={"interruption": {"min_words": MIN_TRANSCRIPT_WORDS}},
     )
 
@@ -237,12 +194,8 @@ async def entrypoint(ctx: JobContext) -> None:
     def _on_user_state_changed(ev) -> None:
         if ev.new_state == "speaking":
             logger.info("[INFO] User started speaking")
-            # Kullanıcı, asistanın turu hâlâ aktifken (örn. bekleyen bir
-            # interim zamanlayıcı varken) tekrar konuşmaya başlarsa, bunu
-            # SDK'nın kendi interruption mekanizmasından bağımsız olarak
-            # hemen orchestrator'a bildiriyoruz — henüz söylenmemiş bir
-            # "düşünüyorum" mesajının barge-in'de gecikmeden iptal edilmesi
-            # için.
+            # Turu hâlâ aktifken kullanıcı tekrar konuşursa, bekleyen interim
+            # mesajının gecikmeden iptal edilmesi için orchestrator'a bildir.
             if orchestrator.turn_active:
                 orchestrator.cancel_current_response()
         elif ev.old_state == "speaking":
@@ -318,11 +271,9 @@ async def entrypoint(ctx: JobContext) -> None:
             instructions=SYSTEM_PROMPT, tools=all_tools(), orchestrator=orchestrator
         ),
         room=ctx.room,
-        # BVC (Background Voice Cancellation): mikrofona sızan konuşmacı-dışı
-        # sesleri (asistanın kendi hoparlör/kulaklık çıktısı dahil) ses
-        # seviyesinde bastırır — VoiceAgent.stt_node'daki metin-seviyesi echo
-        # filtresini (word-count + self-echo benzerliği) tamamlayan, kök
-        # nedene daha yakın bir önlem.
+        # BVC: mikrofona sızan konuşmacı-dışı sesleri (asistanın kendi çıktısı
+        # dahil) ses seviyesinde bastırır — stt_node'daki metin filtresini
+        # tamamlayan bir önlem.
         room_input_options=RoomInputOptions(noise_cancellation=noise_cancellation.BVC()),
     )
     await ctx.connect()

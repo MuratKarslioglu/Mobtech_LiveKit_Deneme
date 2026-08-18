@@ -6,22 +6,14 @@ from .interim_response_manager import DEFAULT_INTERIM_MESSAGE, InterimResponseMa
 
 
 class ResponseOrchestrator:
-    """V2 dokümanı bölüm 8'deki ResponseOrchestrator'ın, projenin mevcut
-    event-driven `AgentSession` entegrasyonuna uyarlanmış hali.
+    """Turn lifecycle koordinasyonu: `agent.py`'deki `VoiceAgent.llm_node`,
+    `conversation_item_added` (FunctionCall/Output) ve `user_state_changed`
+    (barge-in) event'lerini `InterimResponseManager`/`CancellationManager`'a
+    yönlendirir.
 
-    `agent.py`'ye bağlı: `VoiceAgent.llm_node` (genel LLM interim
-    zamanlayıcısı), `conversation_item_added` (`FunctionCall`/
-    `FunctionCallOutput` → tool-specific interim mesajı, turn start/finish)
-    ve `user_state_changed` (barge-in → `cancel_current_response`) event'leri
-    bu sınıf üzerinden `InterimResponseManager`/`CancellationManager`'a
-    yönlendiriliyor.
-
-    LiveKit'in `AgentSession`'ı LLM/TTS generation task'larını bugün hâlâ
-    kendi içinde yönetiyor — burada kendi oluşturduğumuz bir generation
-    task'ı yok, bu yüzden `CancellationManager` şu an yalnızca interim
-    zamanlayıcıyı izliyor. `Agent.llm_node`'un LLM/TTS'i tam olarak kendi
-    `asyncio.Task`'larına sarıp `track()` etmesi (gerçek barge-in
-    cancellation) ileriki bir aşamaya (V2 dokümanı Faz 4 notu) bırakıldı.
+    LiveKit'in `AgentSession`'ı LLM/TTS generation task'larını kendi içinde
+    yönettiği için `CancellationManager` şu an yalnızca interim zamanlayıcıyı
+    izliyor; gerçek generation/TTS cancellation ileriki bir aşamaya bırakıldı.
     """
 
     def __init__(

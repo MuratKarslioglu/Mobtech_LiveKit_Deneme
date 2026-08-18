@@ -11,12 +11,10 @@ DEFAULT_INTERIM_MESSAGE = "Bir saniye, düşünüyorum."
 
 class InterimResponseManager:
     """Bir işlem `threshold_s` saniyeden uzun sürerse `speak(message)`'ı
-    çağırır; işlem bu süreden önce `cancel()` ile durdurulursa hiçbir şey
-    söylenmez (bkz. V2 dokümanı bölüm 9).
+    çağırır; `cancel()` bu süreden önce çağrılırsa hiçbir şey söylenmez.
 
     `speak`, LiveKit `AgentSession.say()` gibi senkron bir çağrı olacak
-    şekilde tasarlandı — kendisi zaten arka planda konuşmayı zamanlıyor,
-    burada ayrıca `await` edilmesine gerek yok.
+    şekilde tasarlandı — kendisi zaten arka planda konuşmayı zamanlıyor.
     """
 
     def __init__(self, *, threshold_s: float, speak: Callable[[str], None]) -> None:

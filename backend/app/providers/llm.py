@@ -6,12 +6,10 @@ from ..config import Settings
 
 
 def build_llm(settings: Settings) -> openai.LLM:
-    """Azure OpenAI (Azure AI Foundry) chat deployment'ına bağlanan LLM örneği.
+    """Azure OpenAI chat deployment'ına bağlanan LLM örneği.
 
-    `reasoning_effort="minimal"`: gpt-5-mini gibi reasoning modellerinde
-    gereksiz iç muhakemeyi atlayıp gecikmeyi belirgin şekilde düşürüyor
-    (canlı ölçümde ortalama ~2.2sn -> ~1.2sn TTFT). Sesli asistan için
-    öncelik hızlı/kısa cevap, derin muhakeme değil.
+    `reasoning_effort="minimal"`: reasoning modellerinde gereksiz iç
+    muhakemeyi atlayıp TTFT'yi düşürüyor (~2.2sn -> ~1.2sn, canlı ölçüm).
     """
     return openai.LLM.with_azure(
         model=settings.azure_openai_llm_deployment,

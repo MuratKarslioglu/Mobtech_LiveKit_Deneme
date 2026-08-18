@@ -2,10 +2,7 @@
 ölçümü.
 
 LiveKit odası veya mikrofon gerektirmez — `.env`'deki Azure deployment'larını
-doğrudan çağırıp TTFT/toplam süreyi ölçer. V2 dokümanı bölüm 23'teki
-benchmark senaryolarının ("Senaryo A: basit bilgi sorusu" vb.) hızlı, elle
-tekrarlanabilir bir otomasyonudur; katman bazlı gecikmeyi görmek için
-kullanılır, ses kalitesini veya konuşma tanıma doğruluğunu test etmez.
+doğrudan çağırıp TTFT/toplam süreyi ölçer; ses kalitesini test etmez.
 
 Kullanım:
     cd backend

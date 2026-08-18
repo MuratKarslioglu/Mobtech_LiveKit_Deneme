@@ -44,16 +44,23 @@ class Settings:
     livekit_api_key: str
     livekit_api_secret: str
 
-    # Tek bir Azure OpenAI/Azure AI Foundry kaynağı, üç ayrı deployment:
-    # chat (LLM), transcribe (STT) ve TTS. Aynı endpoint/key'i paylaşırlar.
+    # Tek Azure OpenAI kaynağı, dört ayrı deployment (chat/STT/TTS/embedding), aynı endpoint/key.
     azure_openai_endpoint: str
     azure_openai_api_key: str
     azure_openai_api_version: str
     azure_openai_llm_deployment: str
     azure_openai_stt_deployment: str
     azure_openai_tts_deployment: str
+    azure_openai_embedding_deployment: str
+    azure_openai_embedding_dimensions: int
 
     interim_response_threshold_ms: int
+
+    # Belge retriever'ı (SQLite + sqlite-vec) ve yüklenen dosyalar için yol.
+    documents_dir: str
+    documents_db_path: str
+    # Belge API'sinin (app/api.py) CORS için izin verdiği frontend origin'i.
+    frontend_origin: str
 
     app_language: str
     log_level: str
@@ -69,23 +76,19 @@ def load_settings() -> Settings:
         azure_openai_llm_deployment=_require("AZURE_OPENAI_LLM_DEPLOYMENT"),
         azure_openai_stt_deployment=_require("AZURE_OPENAI_STT_DEPLOYMENT"),
         azure_openai_tts_deployment=_require("AZURE_OPENAI_TTS_DEPLOYMENT"),
+        azure_openai_embedding_deployment=_require("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+        # text-embedding-3-small/large boyutu; Azure'daki deployment'a göre
+        # değişebileceğinden env üzerinden ezilebilir bırakıldı.
+        azure_openai_embedding_dimensions=_optional_int("AZURE_OPENAI_EMBEDDING_DIMENSIONS", 1536),
         azure_openai_api_version=_optional("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-        # Bir tool/LLM işlemi bu süreden (ms) uzun sürerse kullanıcıya bir ara
-        # mesaj söylenir (bkz. InterimResponseManager, V2 dokümanı bölüm 9.2).
-        #
-        # ÖNEMLİ: LiveKit'in AgentSession'ı, `session.say()` ile tetiklenen
-        # interim mesajını ve asıl LLM cevabını AYNI önceliğe (SPEECH_PRIORITY_
-        # NORMAL) sahip tek bir FIFO kuyrukta sıralıyor; asıl cevabın
-        # SpeechHandle'ı, kullanıcının turu onaylandığı anda (LLM ilk token'ı
-        # üretmeden ÖNCE) bu kuyruğa zaten giriyor. Yani interim mesajı ne
-        # zaman tetiklenirse tetiklensin, kuyrukta asıl cevabın HER ZAMAN
-        # arkasına düşer — "düşünüyorum" mesajının cevaptan sonra çalması bir
-        # timing hatası değil, LiveKit SDK'sının genel `say()` API'sinin bir
-        # sınırlaması (öncelik parametresi dışarı açılmıyor). Bu yüzden eşik,
-        # bu deployment'ın tipik LLM TTFT'sinin (~1.2-1.5sn, bkz. providers/
-        # llm.py) BELİRGİN ÜSTÜNDE tutuluyor — normal turlarda hiç
-        # tetiklenmesin, yalnızca gerçekten anormal/yavaş durumlarda (örn.
-        # yavaş bir tool çağrısı) devreye girsin diye.
+        documents_dir=_optional("DOCUMENTS_DIR", "data/uploads"),
+        documents_db_path=_optional("DOCUMENTS_DB_PATH", "data/documents.db"),
+        frontend_origin=_optional("FRONTEND_ORIGIN", "http://localhost:3000"),
+        # Bir tool/LLM işlemi bu süreden (ms) uzun sürerse ara mesaj söylenir.
+        # LiveKit'in `session.say()` çağrısı interim mesajı ve asıl cevabı aynı
+        # FIFO kuyrukta sıralıyor (öncelik parametresi yok), bu yüzden eşik
+        # tipik LLM TTFT'sinin (~1.2-1.5sn) belirgin üstünde tutuluyor — normal
+        # turlarda hiç tetiklenmesin diye.
         interim_response_threshold_ms=_optional_int("INTERIM_RESPONSE_THRESHOLD_MS", 2500),
         app_language=_optional("APP_LANGUAGE", "tr"),
         log_level=_optional("LOG_LEVEL", "INFO"),

@@ -6,6 +6,11 @@ def test_all_tools_includes_add_numbers():
     assert "add_numbers" in names
 
 
+def test_all_tools_includes_search_documents():
+    names = {tool.info.name for tool in all_tools()}
+    assert "search_documents" in names
+
+
 def test_tool_config_returns_registered_metadata():
     config = tool_config("add_numbers")
     assert config is not None

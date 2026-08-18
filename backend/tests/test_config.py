@@ -9,6 +9,7 @@ def _set_required_env(monkeypatch):
     monkeypatch.setenv("AZURE_OPENAI_LLM_DEPLOYMENT", "gpt-5-mini")
     monkeypatch.setenv("AZURE_OPENAI_STT_DEPLOYMENT", "gpt-4o-mini-transcribe")
     monkeypatch.setenv("AZURE_OPENAI_TTS_DEPLOYMENT", "tts")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
 
 
 def test_load_settings_raises_when_required_var_missing(monkeypatch):

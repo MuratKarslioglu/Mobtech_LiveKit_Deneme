@@ -5,17 +5,10 @@ from typing import Any
 
 
 class CancellationManager:
-    """Aktif LLM generation / TTS playback / tool execution görevlerinin
-    `asyncio.Task` referanslarını tutar; barge-in anında hepsini güvenli
-    şekilde iptal eder (bkz. V2 dokümanı bölüm 8 ve 13).
-
-    `ResponseOrchestrator` üzerinden `agent.py`'ye bağlı (`user_state_changed`
-    → `cancel_current_response`); ancak LiveKit'in `AgentSession`'ı LLM/TTS
-    generation task'larını hâlâ kendi içinde yönettiği için burada izlenen
-    gerçek bir task yok — `cancel_all()` bugün güvenli bir no-op'tur (interim
-    zamanlayıcı zaten `ResponseOrchestrator` tarafından ayrıca iptal ediliyor).
-    `Agent.llm_node` kendi generation task'larını oluşturup `track()` ile
-    kaydettiğinde gerçek LLM/TTS cancellation da buradan yönetilecek.
+    """Aktif görevlerin `asyncio.Task` referanslarını tutar; barge-in anında
+    hepsini iptal eder. LiveKit'in `AgentSession`'ı LLM/TTS generation
+    task'larını hâlâ kendi içinde yönettiği için burada izlenen gerçek bir
+    task yok — `cancel_all()` bugün güvenli bir no-op'tur.
     """
 
     def __init__(self) -> None:

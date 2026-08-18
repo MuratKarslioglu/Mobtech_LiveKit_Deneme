@@ -25,6 +25,7 @@ def all_tools() -> list[llm.FunctionTool]:
     """Kayıtlı tüm tool'ları döndürür. Yeni bir tool modülü eklendiğinde
     burada import edilmesi yeterli — çağıran taraf (agent.py) tek tek
     tool modüllerini bilmek zorunda kalmaz."""
+    from . import document_tools  # noqa: F401
     from . import math_tools  # noqa: F401
 
     return list(_tools)
