@@ -33,3 +33,23 @@ def test_search_documents_formats_results(monkeypatch):
 
     assert "rapor.pdf" in result
     assert "önemli bilgi" in result
+
+
+def test_search_documents_clamps_max_results_to_upper_bound(monkeypatch):
+    fake_retriever = AsyncMock()
+    fake_retriever.search.return_value = []
+    monkeypatch.setattr(document_tools, "get_retriever", lambda settings: fake_retriever)
+
+    asyncio.run(document_tools.search_documents(query="test", max_results=999))
+
+    fake_retriever.search.assert_awaited_once_with("test", top_k=document_tools.MAX_RESULTS)
+
+
+def test_search_documents_clamps_max_results_to_lower_bound(monkeypatch):
+    fake_retriever = AsyncMock()
+    fake_retriever.search.return_value = []
+    monkeypatch.setattr(document_tools, "get_retriever", lambda settings: fake_retriever)
+
+    asyncio.run(document_tools.search_documents(query="test", max_results=0))
+
+    fake_retriever.search.assert_awaited_once_with("test", top_k=document_tools.MIN_RESULTS)

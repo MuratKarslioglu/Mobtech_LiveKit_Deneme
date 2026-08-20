@@ -67,11 +67,37 @@ async def _collect_texts(agent: VoiceAgent, events: list[stt_module.SpeechEvent]
         Agent.default.stt_node = original
 
 
-def test_single_word_transcript_is_dropped():
+def test_single_word_transcript_passes_through_when_assistant_has_not_spoken():
     async def scenario():
+        # Asistan hiç konuşmadıysa (örn. konuşmanın en başı) TTS sızıntısı
+        # ihtimali yok — "Evet" gibi gerçek kısa bir cevap elenmemeli.
         agent = _make_agent(last_assistant_reply=None)
         out = await _collect_texts(agent, [_final_event("Evet")])
+        assert out == ["Evet"]
+
+    asyncio.run(scenario())
+
+
+def test_single_word_transcript_is_dropped_right_after_assistant_spoke():
+    async def scenario():
+        # Asistan az önce konuştuysa (ECHO_RECENCY_WINDOW_S içinde), kısa bir
+        # transkript TTS sızıntısı/halüsinasyon olabilir — bu durumda elenir.
+        agent = _make_agent(last_assistant_reply="Nasıl yardımcı olabilirim?")
+        out = await _collect_texts(agent, [_final_event("Evet")])
         assert out == [""]
+
+    asyncio.run(scenario())
+
+
+def test_single_word_transcript_passes_through_after_recency_window_expires():
+    async def scenario():
+        # Asistan konuştu ama ECHO_RECENCY_WINDOW_S (8s) çoktan geçti —
+        # artık TTS sızıntısı riski yok, kısa cevap geçmeli.
+        agent = _make_agent(
+            last_assistant_reply="Nasıl yardımcı olabilirim?", assistant_reply_age_s=30.0
+        )
+        out = await _collect_texts(agent, [_final_event("Evet")])
+        assert out == ["Evet"]
 
     asyncio.run(scenario())
 

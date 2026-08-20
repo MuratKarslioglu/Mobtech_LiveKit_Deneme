@@ -35,8 +35,10 @@ logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
 # Asistanın kendi TTS çıktısı mikrofona sızıp Azure'un transcribe modelinde
 # (üretken/Whisper benzeri) halüsinasyon bir metne dönüşebiliyor; bunu VAD
 # hassasiyeti yerine transkript uzunluğuyla eliyoruz (bkz. VoiceAgent.stt_node).
-# Gerçek tek kelimelik cevaplar ("Evet", "Dur") bu yüzden kaybolabilir —
-# bilinçli bir ödünleşim.
+# Bu filtre yalnızca asistan yakın zamanda konuştuysa (ECHO_RECENCY_WINDOW_S,
+# TTS sızıntısı riski gerçekten varken) uygulanır — böylece "Evet", "Dur"
+# gibi gerçek tek kelimelik cevaplar (özellikle asistan hiç konuşmamışken)
+# yanlışlıkla elenmez.
 MIN_TRANSCRIPT_WORDS = 2
 
 # Tek-kelime filtresi 2+ kelimelik echo parçalarını (asistanın son cevabının
@@ -75,17 +77,28 @@ def _normalize_for_echo_match(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def _assistant_recently_spoke(chat_ctx: llm_module.ChatContext) -> bool:
+    """Asistan son `ECHO_RECENCY_WINDOW_S` saniye içinde konuştu mu?
+
+    Kısa-transkript ve self-echo filtreleri, TTS sızıntısı riski gerçekten
+    varken (asistan yakın zamanda konuştuysa) devreye girmeli — aksi halde
+    "merhaba", "evet", "hayır" gibi gerçek kısa cevaplar da (özellikle
+    konuşmanın başında, asistan hiç konuşmamışken) yanlışlıkla elenir."""
+    last_message = _last_assistant_message(chat_ctx)
+    if last_message is None:
+        return False
+    _, last_reply_at = last_message
+    return time.time() - last_reply_at <= ECHO_RECENCY_WINDOW_S
+
+
 def _is_self_echo(text: str, chat_ctx: llm_module.ChatContext) -> bool:
     """Yeni transkript, asistanın az önce söylediği metnin bir alt-dizisiyle
     büyük oranda örtüşüyor mu? Oran, yeni transkriptin (genelde kısa bir echo
     parçası) uzunluğuna göre normalize edilir — simetrik `ratio()` burada
     yanıltıcı düşük çıkabilir."""
-    last_message = _last_assistant_message(chat_ctx)
-    if last_message is None or not text:
+    if not text or not _assistant_recently_spoke(chat_ctx):
         return False
-    last_reply, last_reply_at = last_message
-    if time.time() - last_reply_at > ECHO_RECENCY_WINDOW_S:
-        return False
+    last_reply, _ = _last_assistant_message(chat_ctx)  # recently_spoke zaten None'ı eledi
     needle = _normalize_for_echo_match(text)
     haystack = _normalize_for_echo_match(last_reply)
     if not needle:
@@ -133,9 +146,12 @@ class VoiceAgent(Agent):
     def stt_node(
         self, audio: AsyncIterable[rtc.AudioFrame], model_settings: ModelSettings
     ) -> AsyncIterable[stt_module.SpeechEvent]:
-        """`MIN_TRANSCRIPT_WORDS`'ten az kelime içeren ya da asistanın az önce
+        """Asistan yakın zamanda konuştuysa (TTS sızıntısı riski varken)
+        `MIN_TRANSCRIPT_WORDS`'ten az kelime içeren ya da asistanın az önce
         söylediğiyle yüksek örtüşen final transkriptleri (muhtemel echo/
-        halüsinasyon) boşaltır."""
+        halüsinasyon) boşaltır. Asistan yakın zamanda konuşmadıysa kısa
+        transkriptler (örn. "merhaba", "evet") olduğu gibi geçer — TTS
+        sızıntısı ihtimali yoksa bunlar gerçek kullanıcı cevabıdır."""
 
         async def _filtered() -> AsyncIterator[stt_module.SpeechEvent]:
             async for event in Agent.default.stt_node(self, audio, model_settings):
@@ -143,8 +159,8 @@ class VoiceAgent(Agent):
                     text = event.alternatives[0].text.strip()
                     word_count = len(text.split())
                     drop_reason: str | None = None
-                    if 0 < word_count < MIN_TRANSCRIPT_WORDS:
-                        drop_reason = f"şüpheli kısa transkript ({word_count} kelime)"
+                    if 0 < word_count < MIN_TRANSCRIPT_WORDS and _assistant_recently_spoke(self.chat_ctx):
+                        drop_reason = f"şüpheli kısa transkript ({word_count} kelime, TTS sonrası)"
                     elif word_count >= MIN_TRANSCRIPT_WORDS and _is_self_echo(text, self.chat_ctx):
                         drop_reason = "olası self-echo"
                     if drop_reason:
